@@ -18,7 +18,7 @@ CORE := core/cpu.c core/bus.c core/softswitch.c core/rom.c core/blockdev.c \
 CORE_DEPS := $(wildcard core/*.h core/*.inc)
 HOST_COMMON := host/read_file.c
 TESTS := test_bus test_softswitch test_cpu test_blockdev test_video \
-         test_scale test_machine test_boot
+         test_scale test_idle test_machine test_boot
 
 # Device: first USB serial port unless port=... is given.
 port ?= $(firstword $(wildcard /dev/cu.usbmodem*))
@@ -56,6 +56,7 @@ test: $(addprefix $(BUILD)/,$(TESTS)) $(KLAUS) ## Run unit tests, boot smoke tes
 	$(BUILD)/test_blockdev
 	$(BUILD)/test_video
 	$(BUILD)/test_scale
+	$(BUILD)/test_idle
 	$(BUILD)/test_machine
 	$(BUILD)/test_boot $(IMAGE) tests/golden.txt
 
@@ -71,6 +72,8 @@ $(BUILD)/test_blockdev: tests/test_blockdev.c core/blockdev.c core/cpu.c core/bu
 $(BUILD)/test_video: tests/test_video.c core/video.c core/bus.c core/rom.c core/softswitch.c
 $(BUILD)/test_scale: CPPFLAGS += -Ifirmware/src
 $(BUILD)/test_scale: tests/test_scale.c firmware/src/scale.c
+$(BUILD)/test_idle: CPPFLAGS += -Ifirmware/src
+$(BUILD)/test_idle: tests/test_idle.c firmware/src/idle.c
 $(BUILD)/test_machine: tests/test_machine.c $(CORE)
 $(BUILD)/test_boot: tests/test_boot.c $(CORE)
 

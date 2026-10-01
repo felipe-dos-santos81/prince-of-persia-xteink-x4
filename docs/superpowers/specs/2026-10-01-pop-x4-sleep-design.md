@@ -43,7 +43,7 @@ the beginning.
 
 | Unit | Responsibility | Interface |
 |---|---|---|
-| `firmware/src/idle.c`, `idle.h` | Inactivity timer, plain C, tested on the host | `void idle_reset(idle_timer_t *t, uint32_t now_ms)`; `bool idle_update(idle_timer_t *t, uint32_t now_ms, bool active)`: true once `IDLE_SLEEP_MS` has passed with `active` false throughout; correct across `millis()` wrap-around |
+| `firmware/src/idle.c`, `idle.h` | Inactivity timer, plain C, tested on the host | `void idle_reset(idle_timer_t *t, uint32_t now_ms, uint32_t timeout_ms)`; `bool idle_update(idle_timer_t *t, uint32_t now_ms, bool active)`: true once `timeout_ms` has passed with `active` false throughout; correct across `millis()` wrap-around. The firmware passes `IDLE_SLEEP_MS` |
 | `firmware/src/input.cpp`, `input.h` | Read the buttons | `void input_begin(void)`; `bool input_any_pressed(void)`; `bool input_power_pressed(void)` |
 | `firmware/src/display.cpp` | Gains the sleep screen | `void display_show_sleep(uint8_t *picture)`: overlay the wake hint on the picture, show it with one full refresh, then power the panel controller off |
 | `firmware/src/main.cpp` | Snapshot, timer, sleep sequence | — |
