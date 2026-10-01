@@ -14,4 +14,9 @@ void display_show(const uint8_t *picture);
    using one full refresh. Uses picture as scratch space. */
 void display_show_halt(uint8_t *picture, const char *reason);
 
+/* Show picture as the sleep screen: a "Press power to wake" hint is drawn
+   into it, it is shown with one full refresh, and the panel controller is
+   then powered off. Modifies picture. */
+void display_show_sleep(uint8_t *picture);
+
 #endif

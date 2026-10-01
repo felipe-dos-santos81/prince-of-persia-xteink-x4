@@ -31,6 +31,23 @@
 /* 1 = turn the picture upside down, if the panel is mounted that way. */
 #define ROTATE_180 0
 
+/* Buttons: two resistor ladders read by the ADC, and the power button. */
+#define BUTTON_FRONT_PIN 1 /* Back, Confirm, Left, Right */
+#define BUTTON_SIDE_PIN 2  /* Up, Down */
+#define BUTTON_POWER_PIN 3 /* active low; the only button that can wake deep sleep */
+/* A ladder reading at or below this (of 4095) means one of its buttons is down. */
+#define BUTTON_PRESSED_MAX 3800
+
+/* Sleep after this long with no button pressed. */
+#define IDLE_SLEEP_MS 30000
+/* 1 = sleep even while a USB host is connected (the serial port then
+   disappears). Enable it for one build with: make flash sleep_usb=1 */
+#ifndef SLEEP_ON_USB
+#define SLEEP_ON_USB 0
+#endif
+/* Emulated frame whose picture becomes the sleep screen: the title screen. */
+#define SLEEP_PICTURE_FRAME 1200
+
 /* Frames to run flat-out at boot to measure emulation speed. 0 = skip. */
 #define BOOT_BENCHMARK_FRAMES 300
 

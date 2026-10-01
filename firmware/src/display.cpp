@@ -235,3 +235,19 @@ void display_show_halt(uint8_t *picture, const char *reason)
 
     show_full(picture);
 }
+
+void display_show_sleep(uint8_t *picture)
+{
+    static const char hint[] = "Press power to wake";
+
+    /* A black box at the bottom centre, 256 dots wide (bytes 19..50 of each
+       row), with the hint centred in it. */
+    for (int y = MACHINE_VIDEO_HEIGHT - 32; y < MACHINE_VIDEO_HEIGHT; y++) {
+        memset(picture + y * MACHINE_VIDEO_ROW_BYTES + 19, 0, 32);
+    }
+    draw_text(picture, (MACHINE_VIDEO_WIDTH - 12 * (int)(sizeof hint - 1)) / 2,
+              MACHINE_VIDEO_HEIGHT - 24, hint, 2);
+
+    show_full(picture);
+    epd.hibernate();
+}

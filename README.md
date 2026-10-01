@@ -2,7 +2,9 @@
 
 Standalone firmware that runs Jordan Mechner's Apple II Prince of Persia on an
 Xteink X4 e-reader (ESP32-C3, 800×480 e-ink). It plays the title sequence and
-the attract-mode demo, stretched to the whole panel. No input, no sound.
+the attract-mode demo, stretched to the whole panel. No sound, and the
+buttons do not play the game: after 30 s with no button pressed it shows the
+title screen and sleeps; the power button wakes it and the demo starts over.
 
 Inside is a small Apple IIe emulator in portable C (`core/`): a 6502, 128K of
 banked memory, the soft switches the game uses, a stub ROM, and a disk trap
@@ -32,6 +34,7 @@ and git.
 |---|---|
 | `make flash fast=1` | Custom 4-frame waveform: ~6 pictures/s instead of ~2. **It drives the panel outside its rated parameters and may damage it permanently.** |
 | `make flash halt=1` | Boots into the halt screen, to check error reporting. |
+| `make flash sleep_usb=1` | Sleeps after 30 s even while USB is connected. By default it stays awake on USB so it can be flashed; asleep, it disappears from USB until the power button wakes it. |
 
 Panel tuning (`ROTATE_180`, `INVERT_VIDEO`, `FULL_REFRESH_EVERY`, SPI clock)
 lives in `firmware/src/config.h`.

@@ -26,7 +26,9 @@ ESPTOOL := $(HOME)/.platformio/penv/bin/esptool --chip esp32c3 -p $(port) -b 921
 FW_BUILD := firmware/.pio/build/x4
 BOOT_APP0 := $(HOME)/.platformio/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin
 # fast=1: custom fast waveform (MAY DAMAGE THE PANEL). halt=1: halt self-test.
-FW_FLAGS := $(if $(fast),-DFAST_LUT=1) $(if $(halt),-DSELF_TEST_HALT=1)
+# sleep_usb=1: sleep after 30 s idle even while USB is connected.
+FW_FLAGS := $(if $(fast),-DFAST_LUT=1) $(if $(halt),-DSELF_TEST_HALT=1) \
+            $(if $(sleep_usb),-DSLEEP_ON_USB=1)
 
 .PHONY: help game test soak host run firmware backup flash monitor restore clean
 
@@ -103,7 +105,7 @@ $(BUILD)/pop-sdl: host/sdl_main.c $(HOST_COMMON) $(CORE) $(CORE_DEPS)
 
 # The image is embedded with .incbin, which PlatformIO does not track, so a
 # newer image forces a clean build.
-firmware: $(IMAGE) ## Build the X4 firmware (fast=1 fast waveform, halt=1 halt self-test)
+firmware: $(IMAGE) ## Build the X4 firmware (fast=1, halt=1, sleep_usb=1: see README)
 	@if [ -f $(FW_BUILD)/firmware.bin ] && [ $(IMAGE) -nt $(FW_BUILD)/firmware.bin ]; then \
 		cd firmware && pio run -t clean; \
 	fi

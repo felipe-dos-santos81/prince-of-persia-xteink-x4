@@ -1,7 +1,10 @@
 #include <Arduino.h>
+#include <esp_sleep.h>
 
 #include "config.h"
 #include "display.h"
+#include "idle.h"
+#include "input.h"
 #include "machine.h"
 
 /* 17,030 cycles at 1,020,484 Hz. */
@@ -20,6 +23,12 @@ static uint8_t picture[MACHINE_VIDEO_BUFFER_SIZE];
 static SemaphoreHandle_t frame_request;
 static SemaphoreHandle_t frame_ready;
 static volatile bool halted;
+static volatile bool sleeping;
+/* The title screen, kept for the sleep screen. */
+static uint8_t sleep_picture[MACHINE_VIDEO_BUFFER_SIZE];
+static bool have_sleep_picture;
+static uint32_t frames_run;
+static idle_timer_t idle;
 static volatile uint32_t panel_refreshes;
 
 static uint32_t next_frame_us;
@@ -38,6 +47,43 @@ static uint32_t picture_hash(const uint8_t *data, size_t len)
     return hash;
 }
 
+/* Show the sleep screen and power down until the power button is pressed.
+   Waking is a reset: setup() runs again. Does not return. */
+static void enter_deep_sleep(void)
+{
+    display_show_sleep(have_sleep_picture ? sleep_picture : picture);
+
+    /* A held button would wake the chip straight away. */
+    while (input_power_pressed()) {
+        delay(10);
+    }
+    delay(50);
+    esp_deep_sleep_enable_gpio_wakeup(1ULL << BUTTON_POWER_PIN, ESP_GPIO_WAKEUP_GPIO_LOW);
+    esp_deep_sleep_start();
+}
+
+/* Once IDLE_SLEEP_MS passes with no button pressed, hand over to the display
+   task to sleep. While a USB host is connected, stay awake unless
+   SLEEP_ON_USB is set, so the device can still be flashed and monitored. */
+static void check_idle(void)
+{
+    static bool postponed_logged;
+
+    if (!idle_update(&idle, millis(), input_any_pressed())) {
+        return;
+    }
+    if (!SLEEP_ON_USB && HWCDC::isPlugged()) {
+        if (!postponed_logged) {
+            Serial.println("sleep: postponed while USB is connected");
+            postponed_logged = true;
+        }
+        return;
+    }
+    Serial.printf("sleep: idle for %u s\n", (unsigned)(IDLE_SLEEP_MS / 1000));
+    sleeping = true;
+    xSemaphoreGive(frame_ready); /* wake the display task to sleep */
+}
+
 /* Owns the panel. Asks the emulator for a picture, shows it if it changed,
    and repeats. The emulator keeps running while the panel refreshes. */
 static void display_task(void *)
@@ -53,6 +99,9 @@ static void display_task(void *)
         if (halted) {
             display_show_halt(picture, machine_halt_reason());
             vTaskDelete(NULL);
+        }
+        if (sleeping) {
+            enter_deep_sleep();
         }
 
         uint32_t hash = picture_hash(picture, sizeof picture);
@@ -151,6 +200,7 @@ void setup()
        that is connected but not reading. */
     Serial.setTxTimeoutMs(1);
     delay(1500); /* let USB serial enumerate so the boot log is visible */
+    input_begin();
 
     size_t image_len = (size_t)(disk_image_end - disk_image_start);
     log_image(image_len);
@@ -166,6 +216,7 @@ void setup()
     frame_ready = xSemaphoreCreateBinary();
     xTaskCreate(display_task, "display", 8192, NULL, 2, NULL);
 
+    idle_reset(&idle, millis(), IDLE_SLEEP_MS); /* boot and wake count as activity */
     next_frame_us = micros();
 }
 
@@ -177,6 +228,10 @@ void loop()
         delay(1000);
         return;
     }
+    if (sleeping) {
+        delay(1000); /* the display task is putting the device to sleep */
+        return;
+    }
 
     if (machine_run_frame() == MACHINE_HALTED) {
         halted = true;
@@ -184,11 +239,17 @@ void loop()
         return;
     }
 
+    if (++frames_run == SLEEP_PICTURE_FRAME) {
+        machine_render(sleep_picture);
+        have_sleep_picture = true;
+    }
+
     if (xSemaphoreTake(frame_request, 0) == pdTRUE) {
         machine_render(picture);
         xSemaphoreGive(frame_ready);
     }
 
+    check_idle();
     pace();
     log_stats();
 }
