@@ -11,7 +11,7 @@ CORE := core/cpu.c core/bus.c core/softswitch.c core/rom.c core/blockdev.c \
 CORE_DEPS := $(wildcard core/*.h core/*.inc)
 
 TESTS := test_bus test_softswitch test_cpu test_blockdev test_video \
-         test_machine test_boot
+         test_scale test_machine test_boot
 
 .PHONY: all test soak host game clean
 all: host
@@ -22,6 +22,7 @@ $(BUILD)/test_softswitch: tests/test_softswitch.c core/bus.c core/rom.c core/sof
 $(BUILD)/test_cpu: tests/test_cpu.c core/cpu.c core/bus.c core/rom.c core/softswitch.c
 $(BUILD)/test_blockdev: tests/test_blockdev.c core/blockdev.c core/cpu.c core/bus.c core/rom.c core/softswitch.c
 $(BUILD)/test_video: tests/test_video.c core/video.c core/bus.c core/rom.c core/softswitch.c
+$(BUILD)/test_scale: tests/test_scale.c core/scale.c
 $(BUILD)/test_machine: tests/test_machine.c $(CORE)
 $(BUILD)/test_boot: tests/test_boot.c $(CORE)
 
@@ -38,6 +39,7 @@ test: $(addprefix $(BUILD)/,$(TESTS)) $(KLAUS)
 	$(BUILD)/test_cpu $(KLAUS)
 	$(BUILD)/test_blockdev
 	$(BUILD)/test_video
+	$(BUILD)/test_scale
 	$(BUILD)/test_machine
 	$(BUILD)/test_boot $(IMAGE) tests/golden.txt
 

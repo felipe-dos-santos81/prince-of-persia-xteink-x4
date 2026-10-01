@@ -9,6 +9,7 @@
 
 #include "config.h"
 #include "machine.h"
+#include "scale.h"
 
 /* A 4-frame waveform for the SSD1677, from the xteink-bad-apple project
    (https://github.com/CidVonHighwind/xteink-bad-apple, commit cb87824,
@@ -121,28 +122,8 @@ static uint32_t partial_count;
 
 static const uint8_t background = INVERT_VIDEO ? 0xFF : 0x00;
 
-static uint8_t reverse_bits(uint8_t b)
-{
-    b = (uint8_t)(((b & 0xF0) >> 4) | ((b & 0x0F) << 4));
-    b = (uint8_t)(((b & 0xCC) >> 2) | ((b & 0x33) << 2));
-    b = (uint8_t)(((b & 0xAA) >> 1) | ((b & 0x55) << 1));
-    return b;
-}
-
-/* Rotate a 1-bit picture by 180 degrees in place. */
-static void rotate_180(uint8_t *picture)
-{
-    size_t i = 0;
-    size_t j = MACHINE_VIDEO_BUFFER_SIZE - 1;
-
-    while (i < j) {
-        uint8_t tmp = reverse_bits(picture[i]);
-        picture[i] = reverse_bits(picture[j]);
-        picture[j] = tmp;
-        i++;
-        j--;
-    }
-}
+/* What is on the panel: the game picture stretched to all 800x480. */
+static uint8_t panel[SCALE_BUFFER_SIZE];
 
 void display_begin(void)
 {
@@ -152,24 +133,20 @@ void display_begin(void)
     epd.selectSPI(SPI, SPISettings(EPD_SPI_HZ, MSBFIRST, SPI_MODE0));
     epd.init(0, true, 10, false);
     epd.clearScreen(background);
+    memset(panel, background, sizeof panel);
     if (FAST_LUT) {
         epd.load_fast_lut();
     }
     partial_count = 0;
 }
 
-void display_show(uint8_t *picture)
+bool display_show(const uint8_t *picture)
 {
-    if (ROTATE_180) {
-        rotate_180(picture);
-    }
-    if (INVERT_VIDEO) {
-        for (size_t i = 0; i < MACHINE_VIDEO_BUFFER_SIZE; i++) {
-            picture[i] = (uint8_t)~picture[i];
-        }
+    if (!scale_picture(picture, panel, ROTATE_180, INVERT_VIDEO)) {
+        return false;
     }
 
-    epd.write_window(0x24, picture, WINDOW_X, WINDOW_Y, MACHINE_VIDEO_WIDTH, MACHINE_VIDEO_HEIGHT);
+    epd.write_window(0x24, panel, 0, 0, SCALE_WIDTH, SCALE_HEIGHT);
 
     if (FULL_REFRESH_EVERY > 0 && ++partial_count >= FULL_REFRESH_EVERY) {
         partial_count = 0;
@@ -178,12 +155,13 @@ void display_show(uint8_t *picture)
             epd.load_fast_lut();
         }
     } else {
-        epd.update_window(WINDOW_X, WINDOW_Y, MACHINE_VIDEO_WIDTH, MACHINE_VIDEO_HEIGHT);
+        epd.update_window(0, 0, SCALE_WIDTH, SCALE_HEIGHT);
     }
 
     /* Differential refresh compares against the "previous" RAM, so make it
        match what is now on the panel. */
-    epd.write_window(0x26, picture, WINDOW_X, WINDOW_Y, MACHINE_VIDEO_WIDTH, MACHINE_VIDEO_HEIGHT);
+    epd.write_window(0x26, panel, 0, 0, SCALE_WIDTH, SCALE_HEIGHT);
+    return true;
 }
 
 static void set_dot(uint8_t *picture, int x, int y)
@@ -226,10 +204,8 @@ void display_show_halt(uint8_t *picture, const char *reason)
     line[sizeof line - 1] = '\0';
     draw_text(picture, 8, 200, line, 2);
 
-    if (ROTATE_180) {
-        rotate_180(picture);
-    }
-    epd.writeImageForFullRefresh(picture, WINDOW_X, WINDOW_Y, MACHINE_VIDEO_WIDTH,
-                                 MACHINE_VIDEO_HEIGHT, INVERT_VIDEO);
+    scale_picture(picture, panel, ROTATE_180, INVERT_VIDEO);
+    epd.write_window(0x24, panel, 0, 0, SCALE_WIDTH, SCALE_HEIGHT);
+    epd.write_window(0x26, panel, 0, 0, SCALE_WIDTH, SCALE_HEIGHT);
     epd.refresh(false);
 }

@@ -1,5 +1,4 @@
 #include <Arduino.h>
-#include <string.h>
 
 #include "config.h"
 #include "display.h"
@@ -27,15 +26,10 @@ static uint32_t next_frame_us;
 static uint32_t late_frames;
 static uint32_t frames_since_yield;
 
-/* The last picture sent to the panel, to skip pictures that did not change. */
-static uint8_t shown[MACHINE_VIDEO_BUFFER_SIZE];
-
 /* Owns the panel. Asks the emulator for a picture, shows it if it changed,
    and repeats. The emulator keeps running while the panel refreshes. */
 static void display_task(void *)
 {
-    bool first = true;
-
     display_begin();
     for (;;) {
         xSemaphoreGive(frame_request);
@@ -46,11 +40,7 @@ static void display_task(void *)
             vTaskDelete(NULL);
         }
 
-        if (first || memcmp(picture, shown, sizeof picture) != 0) {
-            /* display_show may modify the picture, so copy it first. */
-            memcpy(shown, picture, sizeof picture);
-            display_show(picture);
-            first = false;
+        if (display_show(picture)) {
             panel_refreshes = panel_refreshes + 1;
         } else {
             vTaskDelay(pdMS_TO_TICKS(20));

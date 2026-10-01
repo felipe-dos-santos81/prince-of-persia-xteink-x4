@@ -21,14 +21,9 @@
 #define FAST_LUT 0
 #endif
 
-/* Where the 560x384 picture sits on the 800x480 panel. X must be a
-   multiple of 8. */
-#define WINDOW_X 120
-#define WINDOW_Y 48
-
 /* Force a full (flashing) refresh after this many partial refreshes to clear
    ghosting. 0 = never. */
-#define FULL_REFRESH_EVERY 0
+#define FULL_REFRESH_EVERY 300
 
 /* 1 = black dots on white instead of white dots on black. */
 #define INVERT_VIDEO 0
