@@ -35,7 +35,10 @@
 #define BOOT_BENCHMARK_FRAMES 300
 
 /* 1 = boot with a deliberately wrong image size so the machine halts at
-   once. Used to check the halt reporting on the device. */
+   once. Used to check the halt reporting on the device. Enable it for one
+   build with: PLATFORMIO_BUILD_FLAGS=-DSELF_TEST_HALT=1 pio run */
+#ifndef SELF_TEST_HALT
 #define SELF_TEST_HALT 0
+#endif
 
 #endif

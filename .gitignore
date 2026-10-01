@@ -1,15 +1,22 @@
-# Host build output
+# Build output
 build/
+firmware/.pio/
 
-# Game sources and the built disk image: never committed
+# Game sources and the built disk image (never committed)
 game/work/
 game/out/
 
 # Test fixtures fetched on demand
 tests/data/
 
-# PlatformIO
-firmware/.pio/
-
-# Flash backups of the device
+# Device flash backups
 backup/
+
+# Agent workspace
+.superpowers/
+
+# Editors and OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
