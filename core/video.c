@@ -1,5 +1,6 @@
 #include "video.h"
 
+#include <stdbool.h>
 #include <string.h>
 
 #include "bus.h"
@@ -27,64 +28,79 @@ video_mode_t video_mode(void)
     return VIDEO_MODE_HIRES;
 }
 
-/* One hi-res row: 40 bytes -> 560 dots (one byte per dot, 0 or 1). Each of
-   the 7 pixels in a byte is two dots wide. Bit 7 delays the byte by one dot. */
-static void hires_row(const uint8_t *src, uint8_t *dots)
+/* Lookup tables, built on first use. Patterns are most significant bit
+   leftmost, matching the output.
+   doubled[b]: the 7 pixels of a hi-res byte as 14 dots, each pixel two dots.
+   reversed[b]: the 7 bits of a double hi-res byte as 7 dots, bit 0 leftmost. */
+static uint16_t doubled[128];
+static uint8_t reversed[128];
+static bool tables_ready;
+
+static void build_tables(void)
 {
-    uint8_t prev_last = 0;
-    int col;
+    int b;
     int bit;
+
+    for (b = 0; b < 128; b++) {
+        uint16_t d = 0;
+        uint8_t r = 0;
+        for (bit = 0; bit < 7; bit++) {
+            unsigned on = (unsigned)((b >> bit) & 1);
+            d = (uint16_t)(d | (on * 3u) << (12 - bit * 2));
+            r = (uint8_t)(r | on << (6 - bit));
+        }
+        doubled[b] = d;
+        reversed[b] = r;
+    }
+    tables_ready = true;
+}
+
+/* Appends 14-dot groups to an output row, 8 dots per byte. */
+typedef struct {
+    uint8_t *out;
+    uint32_t acc;
+    int bits;
+} row_writer_t;
+
+static void put14(row_writer_t *w, uint32_t dots)
+{
+    w->acc = (w->acc << 14) | dots;
+    w->bits += 14;
+    while (w->bits >= 8) {
+        w->bits -= 8;
+        *w->out++ = (uint8_t)(w->acc >> w->bits);
+    }
+}
+
+/* One hi-res row: 40 bytes -> 560 dots. Bit 7 delays the byte by one dot:
+   its first dot repeats the previous byte's last pixel and its own last dot
+   falls off. */
+static void hires_row(const uint8_t *src, uint8_t *out)
+{
+    row_writer_t w = { out, 0, 0 };
+    uint32_t prev_last = 0;
+    int col;
 
     for (col = 0; col < APPLE_COLS; col++) {
         uint8_t b = src[col];
-        uint8_t *d = dots + col * 14;
+        uint32_t dots = doubled[b & 0x7F];
 
         if (b & 0x80) {
-            d[0] = prev_last;
-            for (bit = 0; bit < 7; bit++) {
-                uint8_t on = (uint8_t)((b >> bit) & 1);
-                d[1 + bit * 2] = on;
-                /* The 14th dot spills into the next byte's first dot; the
-                   scratch row has one spare dot so the last column is safe. */
-                d[2 + bit * 2] = on;
-            }
-        } else {
-            for (bit = 0; bit < 7; bit++) {
-                uint8_t on = (uint8_t)((b >> bit) & 1);
-                d[bit * 2] = on;
-                d[bit * 2 + 1] = on;
-            }
+            dots = (prev_last << 13) | (dots >> 1);
         }
-        prev_last = (uint8_t)((b >> 6) & 1);
+        put14(&w, dots);
+        prev_last = (uint32_t)((b >> 6) & 1);
     }
 }
 
 /* One double hi-res row: aux byte then main byte per column, 7 dots each. */
-static void dhires_row(const uint8_t *aux, const uint8_t *main, uint8_t *dots)
+static void dhires_row(const uint8_t *aux, const uint8_t *main, uint8_t *out)
 {
+    row_writer_t w = { out, 0, 0 };
     int col;
-    int bit;
 
     for (col = 0; col < APPLE_COLS; col++) {
-        uint8_t *d = dots + col * 14;
-        for (bit = 0; bit < 7; bit++) {
-            d[bit] = (uint8_t)((aux[col] >> bit) & 1);
-            d[7 + bit] = (uint8_t)((main[col] >> bit) & 1);
-        }
-    }
-}
-
-static void pack_row(const uint8_t *dots, uint8_t *out)
-{
-    int i;
-    int bit;
-
-    for (i = 0; i < VIDEO_ROW_BYTES; i++) {
-        uint8_t packed = 0;
-        for (bit = 0; bit < 8; bit++) {
-            packed = (uint8_t)((packed << 1) | dots[i * 8 + bit]);
-        }
-        out[i] = packed;
+        put14(&w, (uint32_t)reversed[aux[col] & 0x7F] << 7 | reversed[main[col] & 0x7F]);
     }
 }
 
@@ -93,7 +109,6 @@ void video_render(uint8_t *out)
     const softswitch_state_t *s = softswitch_state();
     video_mode_t mode = video_mode();
     uint16_t page;
-    uint8_t dots[VIDEO_WIDTH + 1];
     int y;
 
     if (mode == VIDEO_MODE_BLANK) {
@@ -101,6 +116,9 @@ void video_render(uint8_t *out)
         return;
     }
 
+    if (!tables_ready) {
+        build_tables();
+    }
     page = (!s->store80 && s->page2) ? 0x4000 : 0x2000;
 
     for (y = 0; y < APPLE_ROWS; y++) {
@@ -108,11 +126,10 @@ void video_render(uint8_t *out)
         uint8_t *row = out + (y * 2) * VIDEO_ROW_BYTES;
 
         if (mode == VIDEO_MODE_DHIRES) {
-            dhires_row(bus_aux() + addr, bus_main() + addr, dots);
+            dhires_row(bus_aux() + addr, bus_main() + addr, row);
         } else {
-            hires_row(bus_main() + addr, dots);
+            hires_row(bus_main() + addr, row);
         }
-        pack_row(dots, row);
         memcpy(row + VIDEO_ROW_BYTES, row, VIDEO_ROW_BYTES);
     }
 }
