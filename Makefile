@@ -25,8 +25,7 @@ port ?= $(firstword $(wildcard /dev/cu.usbmodem*))
 ESPTOOL := $(HOME)/.platformio/penv/bin/esptool --chip esp32c3 -p $(port) -b 921600
 FW_BUILD := firmware/.pio/build/x4
 BOOT_APP0 := $(HOME)/.platformio/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin
-# fast=1: custom fast waveform (MAY DAMAGE THE PANEL). halt=1: halt self-test.
-# sleep_usb=1: sleep after 30 s idle even while USB is connected.
+# Flags: fast=1 (MAY DAMAGE THE PANEL), halt=1 (halt self-test), sleep_usb=1.
 FW_FLAGS := $(if $(fast),-DFAST_LUT=1) $(if $(halt),-DSELF_TEST_HALT=1) \
             $(if $(sleep_usb),-DSLEEP_ON_USB=1)
 
@@ -43,6 +42,7 @@ help: ## Print this help message
 
 # ── Game image ───────────────────────────────────────────────────────────────
 
+# 'game' always rebuilds; $(IMAGE) is built on demand by targets that need it.
 game: ## Build the disk image from source in Docker (release=1 for the retail patch)
 	game/build.sh $(if $(release),--release-patch)
 
@@ -51,7 +51,7 @@ $(IMAGE):
 
 # ── Tests ────────────────────────────────────────────────────────────────────
 
-test: $(addprefix $(BUILD)/,$(TESTS)) $(KLAUS) ## Run unit tests, boot smoke test and golden frames
+test: $(addprefix $(BUILD)/,$(TESTS)) $(KLAUS) $(IMAGE) ## Run unit tests, boot smoke test and golden frames
 	$(BUILD)/test_bus
 	$(BUILD)/test_softswitch
 	$(BUILD)/test_cpu $(KLAUS)
