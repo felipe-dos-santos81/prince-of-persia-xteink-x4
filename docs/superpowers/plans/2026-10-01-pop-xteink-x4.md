@@ -25,7 +25,7 @@
 - Picture: 560×384, 1 bit per pixel, 70 bytes per row, 26,880 bytes, most significant bit leftmost, 1 = lit (white).
 - SmartPort entry address `$C583`; a call costs 1,000 emulated cycles.
 - Firmware: PlatformIO, Arduino framework, board `esp32-c3-devkitm-1`, flash size 16 MB, app partition 3 MB. Verified with the pioarduino `espressif32` platform 55.03.37 (Arduino core 3.3.7), which is already installed on the development Mac.
-- Panel wiring: SCLK = GPIO8, MOSI = GPIO10, CS = GPIO21, DC = GPIO4, RST = GPIO5, BUSY = GPIO6. Picture window at panel position (120, 48).
+- Panel wiring: SCLK = GPIO8, MOSI = GPIO10, CS = GPIO21, DC = GPIO4, RST = GPIO5, BUSY = GPIO6. Picture window at panel position (120, 48). (Superseded after Task 11 at the user's request: the picture is stretched to the whole 800×480 panel; see spec section 14.)
 - Wi-Fi and Bluetooth are never initialised.
 - Out of scope: input, sound, saved games, power management, SD card, colour or grayscale, text-mode rendering, any other Apple II software.
 - **Anything that writes to the device needs your human partner's explicit go-ahead first.** Flashing replaces the firmware on their e-reader.

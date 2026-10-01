@@ -301,8 +301,13 @@ compiler:
 ### 7.1 Project
 
 - PlatformIO, Arduino framework, board `esp32-c3-devkitm-1` with the flash
-  size overridden to 16 MB.
-- Build flags enable USB CDC serial at boot.
+  size overridden to 16 MB and the flash mode set to DIO (the board default,
+  QIO, boot-loops the X4).
+- Build flags enable USB CDC serial at boot and replace the Arduino default
+  `-Os` with `-O2` (at `-Os` the demo level runs below real time).
+- The firmware is written with `esptool` (`make flash`) rather than
+  `pio run -t upload`, which fails on the development Mac while installing
+  Python packages into PlatformIO's environment.
 - `core/` is compiled into the firmware as a library; no copy of the sources.
 - The disk image is embedded by an assembly file (`disk_image.S`) that uses
   `.incbin` on `game/out/PrinceOfPersia_3.5.hdv`, placed in read-only data.
@@ -314,15 +319,28 @@ compiler:
 
 ### 7.2 Display
 
-- Driver: GxEPD2's `GxEPD2_426_GDEQ0426T82` class used directly through
-  `writeImage`, `refresh(x, y, w, h)` and `writeImageToPrevious`. GxEPD2's
-  paged drawing layer is not used.
-- The 560×384 picture is placed at panel position (120, 48), landscape.
+- Driver: GxEPD2's `GxEPD2_426_GDEQ0426T82` class for init, clearing and full
+  refreshes, extended by a small subclass (`FastEpd` in `display.cpp`) that
+  writes whole rows with one SPI call each and sends the partial-update
+  command itself. GxEPD2 sends one SPI call per byte, which made each update
+  about 160 ms slower. SPI runs at 40 MHz (the SSD1677 is rated for 20 MHz;
+  40 MHz works on the X4).
+- The 560×384 picture is stretched to the whole 800×480 panel, landscape:
+  every 7 dots become 10 across and every 4 rows become 5 down (nearest
+  neighbour, `firmware/src/scale.c`, tested on the host). Rows are scaled
+  while they are sent, so no panel-sized buffer exists.
+- Each update writes the new picture to the controller's "new" RAM, runs a
+  partial (differential) update, then writes the same picture to its
+  "previous" RAM for the next update.
 - At boot: clear the whole panel with one full refresh.
-- After that: partial refresh of the game window only.
 - A compile-time constant `FULL_REFRESH_EVERY` forces a full refresh after
-  that many partial refreshes; 0 disables it. Initial value 0, tuned on the
-  device.
+  that many partial refreshes; 0 disables it. Set to 150 on the device.
+- A compile-time flag `FAST_LUT` (default off; `make flash fast=1`) loads a
+  custom 4-frame waveform from the xteink-bad-apple project. An update then
+  takes about 115 ms instead of about 520 ms, but the waveform drives the
+  panel outside its rated parameters and may damage it. Full refreshes keep
+  its voltages: resetting the controller to its own voltages first was tried
+  and cleared ghosting visibly worse.
 - A compile-time flag `INVERT_VIDEO` swaps black and white. Default off (lit
   dots are white on black).
 - A compile-time flag `ROTATE_180` turns the picture upside down, in case
@@ -339,9 +357,15 @@ Two FreeRTOS tasks:
   the task yields for one scheduler tick at least every 10 frames so the idle
   task and its watchdog are serviced.
 - **Display task**, higher priority, mostly blocked. Loop: request a picture;
-  wait for the signal; hash the buffer; if the hash differs from the last one
-  shown, send it and refresh (the driver blocks until the panel is idle, during
-  which the emulator task runs); repeat.
+  wait for the signal; hash the buffer (32-bit FNV-1a); if the hash differs
+  from the last one shown, send it and refresh (the driver blocks until the
+  panel is idle, during which the emulator task runs); otherwise sleep 20 ms;
+  repeat. Running the display task below the emulator was tried: it kept
+  emulation at real time but cut the picture rate to about 2 per second.
+
+If emulation falls more than 250 ms behind, the emulator task stops trying to
+catch up and restarts its schedule from the current time; late frames are
+still counted.
 
 Only one picture buffer exists. The emulator task writes it only between a
 request and its signal, and the display task reads it only after the signal,
@@ -353,11 +377,13 @@ Over USB serial, once per second: emulated cycles per second, late-frame
 count, panel refreshes per second, free heap. At boot: image size, the first
 16 bytes of block 8, and a benchmark that runs 300 frames unpaced and reports
 the speed as a percentage of real time (the machine is then re-initialised).
+If the machine halts during the benchmark, it says so instead.
 
 ### 7.5 Memory budget
 
 Measured from a firmware link during planning (321,296 bytes of data RAM on
-this chip configuration):
+this chip configuration). The final firmware links at 192,488 bytes of static
+RAM and reports about 103 KB of free heap while running:
 
 | Item | RAM |
 |---|---|
@@ -463,3 +489,16 @@ Jordan Mechner published the source for study and modification and stated
 that this is not a grant of rights in Prince of Persia, which belongs to
 Ubisoft. This project builds the game locally for personal use and never
 commits or distributes the game binary, game data, or any Apple ROM.
+
+## 14. Changes after device bring-up
+
+Made while bringing the firmware up on the X4, at the user's request where
+noted; sections 7.1–7.5 describe the result.
+
+| Change | Why |
+|---|---|
+| DIO flash mode, `-O2`, flashing with `esptool` | Boot loop with the QIO default; demo below real time at `-Os`; `pio` upload broken on the Mac |
+| Bulk SPI rows at 40 MHz, table-driven renderer | User asked for more pictures per second; 685 ms → 524 ms per update, render 11 ms → 2.3 ms |
+| `FAST_LUT` custom waveform | User asked for more pictures per second and accepted the risk of panel damage |
+| Picture stretched to 800×480 | User asked for fullscreen and chose stretching over keeping proportions |
+| `FULL_REFRESH_EVERY` = 150 | User judged the ghosting with the fast waveform |
