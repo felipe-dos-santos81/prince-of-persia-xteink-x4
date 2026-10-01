@@ -1,6 +1,7 @@
 #include <Arduino.h>
 
 #include "config.h"
+#include "display.h"
 #include "machine.h"
 
 /* 17,030 cycles at 1,020,484 Hz. */
@@ -15,10 +16,55 @@ extern const uint8_t disk_image_start[];
 extern const uint8_t disk_image_end[];
 }
 
-static bool halted;
+static uint8_t picture[MACHINE_VIDEO_BUFFER_SIZE];
+static SemaphoreHandle_t frame_request;
+static SemaphoreHandle_t frame_ready;
+static volatile bool halted;
+static volatile uint32_t panel_refreshes;
+
 static uint32_t next_frame_us;
 static uint32_t late_frames;
 static uint32_t frames_since_yield;
+
+static uint64_t fnv1a64(const uint8_t *data, size_t len)
+{
+    uint64_t hash = 0xcbf29ce484222325ULL;
+
+    for (size_t i = 0; i < len; i++) {
+        hash ^= data[i];
+        hash *= 0x100000001b3ULL;
+    }
+    return hash;
+}
+
+/* Owns the panel. Asks the emulator for a picture, shows it if it changed,
+   and repeats. The emulator keeps running while the panel refreshes. */
+static void display_task(void *)
+{
+    uint64_t shown = 0;
+    bool first = true;
+
+    display_begin();
+    for (;;) {
+        xSemaphoreGive(frame_request);
+        xSemaphoreTake(frame_ready, portMAX_DELAY);
+
+        if (halted) {
+            display_show_halt(picture, machine_halt_reason());
+            vTaskDelete(NULL);
+        }
+
+        uint64_t hash = fnv1a64(picture, sizeof picture);
+        if (first || hash != shown) {
+            display_show(picture);
+            shown = hash;
+            first = false;
+            panel_refreshes = panel_refreshes + 1;
+        } else {
+            vTaskDelay(pdMS_TO_TICKS(20));
+        }
+    }
+}
 
 static void log_image(size_t len)
 {
@@ -51,6 +97,7 @@ static void log_stats(void)
 {
     static uint32_t last_ms;
     static uint64_t last_cycles;
+    static uint32_t last_refreshes;
 
     uint32_t now = millis();
     uint32_t elapsed = now - last_ms;
@@ -58,11 +105,15 @@ static void log_stats(void)
         return;
     }
     uint64_t cycles = machine_cycles();
-    Serial.printf("cps=%u late=%u heap=%u mode=%s\n",
+    uint32_t refreshes = panel_refreshes;
+    Serial.printf("cps=%u late=%u refresh/s=%u.%u heap=%u mode=%s\n",
                   (unsigned)((cycles - last_cycles) * 1000 / elapsed), (unsigned)late_frames,
+                  (unsigned)((refreshes - last_refreshes) * 1000 / elapsed),
+                  (unsigned)((refreshes - last_refreshes) * 10000 / elapsed % 10),
                   (unsigned)ESP.getFreeHeap(), machine_video_mode_name());
     last_ms = now;
     last_cycles = cycles;
+    last_refreshes = refreshes;
 }
 
 /* Sleep until the next 16.69 ms tick, or note that we are running late. */
@@ -106,6 +157,10 @@ void setup()
     boot_benchmark();
     machine_init(disk_image_start, image_len); /* start the demo from the top */
 
+    frame_request = xSemaphoreCreateBinary();
+    frame_ready = xSemaphoreCreateBinary();
+    xTaskCreate(display_task, "display", 8192, NULL, 2, NULL);
+
     next_frame_us = micros();
 }
 
@@ -120,7 +175,13 @@ void loop()
 
     if (machine_run_frame() == MACHINE_HALTED) {
         halted = true;
+        xSemaphoreGive(frame_ready); /* wake the display task to show it */
         return;
+    }
+
+    if (xSemaphoreTake(frame_request, 0) == pdTRUE) {
+        machine_render(picture);
+        xSemaphoreGive(frame_ready);
     }
 
     pace();
