@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <string.h>
 
 #include "config.h"
 #include "display.h"
@@ -26,22 +27,13 @@ static uint32_t next_frame_us;
 static uint32_t late_frames;
 static uint32_t frames_since_yield;
 
-static uint64_t fnv1a64(const uint8_t *data, size_t len)
-{
-    uint64_t hash = 0xcbf29ce484222325ULL;
-
-    for (size_t i = 0; i < len; i++) {
-        hash ^= data[i];
-        hash *= 0x100000001b3ULL;
-    }
-    return hash;
-}
+/* The last picture sent to the panel, to skip pictures that did not change. */
+static uint8_t shown[MACHINE_VIDEO_BUFFER_SIZE];
 
 /* Owns the panel. Asks the emulator for a picture, shows it if it changed,
    and repeats. The emulator keeps running while the panel refreshes. */
 static void display_task(void *)
 {
-    uint64_t shown = 0;
     bool first = true;
 
     display_begin();
@@ -54,10 +46,10 @@ static void display_task(void *)
             vTaskDelete(NULL);
         }
 
-        uint64_t hash = fnv1a64(picture, sizeof picture);
-        if (first || hash != shown) {
+        if (first || memcmp(picture, shown, sizeof picture) != 0) {
+            /* display_show may modify the picture, so copy it first. */
+            memcpy(shown, picture, sizeof picture);
             display_show(picture);
-            shown = hash;
             first = false;
             panel_refreshes = panel_refreshes + 1;
         } else {

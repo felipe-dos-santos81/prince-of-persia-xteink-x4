@@ -9,6 +9,18 @@
 #define EPD_RST 5
 #define EPD_BUSY 6
 
+/* SPI clock for the panel. The SSD1677 is rated for 20 MHz writes; 40 MHz
+   works on the X4 (xteink-bad-apple uses it too) and saves 10 ms a picture. */
+#define EPD_SPI_HZ 40000000
+
+/* 1 = picture updates use a custom 4-frame waveform instead of the panel's
+   own (about 520 ms). Much faster, more ghosting, and it drives the panel
+   outside its rated parameters: it MAY PERMANENTLY DAMAGE THE DISPLAY.
+   Enable it for one build with: PLATFORMIO_BUILD_FLAGS=-DFAST_LUT=1 pio run */
+#ifndef FAST_LUT
+#define FAST_LUT 0
+#endif
+
 /* Where the 560x384 picture sits on the 800x480 panel. X must be a
    multiple of 8. */
 #define WINDOW_X 120
