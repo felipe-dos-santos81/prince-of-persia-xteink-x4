@@ -1,0 +1,15 @@
+# Host build output
+build/
+
+# Game sources and the built disk image: never committed
+game/work/
+game/out/
+
+# Test fixtures fetched on demand
+tests/data/
+
+# PlatformIO
+firmware/.pio/
+
+# Flash backups of the device
+backup/
