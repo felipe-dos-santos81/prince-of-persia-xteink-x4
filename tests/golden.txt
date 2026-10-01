@@ -1,0 +1,7 @@
+# <frame number> <FNV-1a 64-bit hash of the 560x384 picture after that frame>
+# Recorded from game/out/PrinceOfPersia_3.5.hdv with SHA-256
+# 21428d817130b9f69673266f9bca361bb3d28286b4a84ffe6524abe844da7080.
+# Frames must be listed in increasing order.
+# 1200: title screen (double hi-res). 9000: demo level sword fight (hi-res).
+1200 7a2efcf3872da9fd
+9000 02b81175014e3b19
