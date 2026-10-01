@@ -22,7 +22,9 @@ $(BUILD)/test_softswitch: tests/test_softswitch.c core/bus.c core/rom.c core/sof
 $(BUILD)/test_cpu: tests/test_cpu.c core/cpu.c core/bus.c core/rom.c core/softswitch.c
 $(BUILD)/test_blockdev: tests/test_blockdev.c core/blockdev.c core/cpu.c core/bus.c core/rom.c core/softswitch.c
 $(BUILD)/test_video: tests/test_video.c core/video.c core/bus.c core/rom.c core/softswitch.c
-$(BUILD)/test_scale: tests/test_scale.c core/scale.c
+# The scaler belongs to the firmware but is plain C, so it is tested here.
+$(BUILD)/test_scale: CPPFLAGS += -Ifirmware/src
+$(BUILD)/test_scale: tests/test_scale.c firmware/src/scale.c
 $(BUILD)/test_machine: tests/test_machine.c $(CORE)
 $(BUILD)/test_boot: tests/test_boot.c $(CORE)
 

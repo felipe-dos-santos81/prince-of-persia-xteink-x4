@@ -1,8 +1,6 @@
 #include "scale.h"
 
-#include <string.h>
-
-#include "video.h"
+#include "machine.h"
 
 /* expand[c]: 7 dots (bit 6 leftmost) stretched to 10 (bit 9 leftmost). */
 static uint16_t expand[128];
@@ -31,8 +29,8 @@ static uint8_t reverse_bits(uint8_t b)
     return b;
 }
 
-/* One 560-dot source row -> one 800-dot row. */
-static void scale_row(const uint8_t *src, uint8_t *dst)
+/* One 560-dot picture row -> one 800-dot panel row, left to right. */
+static void stretch(const uint8_t *src, uint8_t *dst)
 {
     uint32_t acc = 0;
     int bits = 0;
@@ -41,8 +39,8 @@ static void scale_row(const uint8_t *src, uint8_t *dst)
     for (g = 0; g < SCALE_WIDTH / 10; g++) {
         int bit = g * 7;
         int i = bit / 8;
-        unsigned pair = (unsigned)src[i] << 8 | (i + 1 < VIDEO_ROW_BYTES ? src[i + 1] : 0u);
-        unsigned chunk = (pair >> (9 - bit % 8)) & 0x7Fu;
+        unsigned next = i + 1 < MACHINE_VIDEO_ROW_BYTES ? src[i + 1] : 0u;
+        unsigned chunk = (((unsigned)src[i] << 8 | next) >> (9 - bit % 8)) & 0x7Fu;
 
         acc = (acc << 10) | expand[chunk];
         bits += 10;
@@ -53,32 +51,24 @@ static void scale_row(const uint8_t *src, uint8_t *dst)
     }
 }
 
-bool scale_picture(const uint8_t *in, uint8_t *out, bool rotate_180, bool invert)
+int scale_source_row(int y, bool rotate_180)
+{
+    return (rotate_180 ? SCALE_HEIGHT - 1 - y : y) * 4 / 5;
+}
+
+void scale_row(const uint8_t *picture, int y, bool rotate_180, bool invert, uint8_t *out)
 {
     uint8_t row[SCALE_ROW_BYTES];
-    uint8_t final_row[SCALE_ROW_BYTES];
     uint8_t flip = invert ? 0xFF : 0x00;
-    bool changed = false;
-    int y;
+    int src_y = scale_source_row(y, rotate_180);
     int i;
 
     if (!expand_ready) {
         build_expand();
     }
-
-    for (y = 0; y < SCALE_HEIGHT; y++) {
-        int src_y = (rotate_180 ? SCALE_HEIGHT - 1 - y : y) * 4 / 5;
-        uint8_t *dst = out + y * SCALE_ROW_BYTES;
-
-        scale_row(in + src_y * VIDEO_ROW_BYTES, row);
-        for (i = 0; i < SCALE_ROW_BYTES; i++) {
-            uint8_t b = rotate_180 ? reverse_bits(row[SCALE_ROW_BYTES - 1 - i]) : row[i];
-            final_row[i] = (uint8_t)(b ^ flip);
-        }
-        if (memcmp(dst, final_row, SCALE_ROW_BYTES) != 0) {
-            memcpy(dst, final_row, SCALE_ROW_BYTES);
-            changed = true;
-        }
+    stretch(picture + src_y * MACHINE_VIDEO_ROW_BYTES, row);
+    for (i = 0; i < SCALE_ROW_BYTES; i++) {
+        uint8_t b = rotate_180 ? reverse_bits(row[SCALE_ROW_BYTES - 1 - i]) : row[i];
+        out[i] = (uint8_t)(b ^ flip);
     }
-    return changed;
 }

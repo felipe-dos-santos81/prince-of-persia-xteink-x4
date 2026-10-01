@@ -1,20 +1,27 @@
 #include <string.h>
 
+#include "machine.h"
 #include "scale.h"
 #include "test.h"
-#include "video.h"
 
-static uint8_t in[VIDEO_BUFFER_SIZE];
-static uint8_t out[SCALE_BUFFER_SIZE];
+static uint8_t in[MACHINE_VIDEO_BUFFER_SIZE];
+static uint8_t out[SCALE_ROW_BYTES * SCALE_HEIGHT];
 
 static int get_in(int x, int y)
 {
-    return (in[y * VIDEO_ROW_BYTES + x / 8] >> (7 - x % 8)) & 1;
+    return (in[y * MACHINE_VIDEO_ROW_BYTES + x / 8] >> (7 - x % 8)) & 1;
 }
 
 static int get_out(int x, int y)
 {
     return (out[y * SCALE_ROW_BYTES + x / 8] >> (7 - x % 8)) & 1;
+}
+
+static void scale_all(bool rotate_180, bool invert)
+{
+    for (int y = 0; y < SCALE_HEIGHT; y++) {
+        scale_row(in, y, rotate_180, invert, out + y * SCALE_ROW_BYTES);
+    }
 }
 
 /* Nearest-neighbour reference: panel pixel (x, y) shows game pixel
@@ -53,7 +60,6 @@ static void test_sizes(void)
     CHECK_EQ(SCALE_WIDTH, 800);
     CHECK_EQ(SCALE_HEIGHT, 480);
     CHECK_EQ(SCALE_ROW_BYTES, 100);
-    CHECK_EQ(SCALE_BUFFER_SIZE, 48000);
 }
 
 static void test_matches_reference_in_every_orientation(void)
@@ -62,7 +68,7 @@ static void test_matches_reference_in_every_orientation(void)
         for (int invert = 0; invert < 2; invert++) {
             fill_random(42u + (uint32_t)(rotate * 2 + invert));
             memset(out, 0, sizeof out);
-            scale_picture(in, out, rotate, invert);
+            scale_all(rotate, invert);
             CHECK_EQ(count_mismatches(rotate, invert), 0);
         }
     }
@@ -73,9 +79,9 @@ static void test_single_dot_becomes_its_block(void)
     /* Game dot (7, 4) covers panel columns 10..11 (x*7/10 == 7) and rows
        5..6 (y*4/5 == 4). */
     memset(in, 0, sizeof in);
-    in[4 * VIDEO_ROW_BYTES + 0] = 0x01; /* x = 7 */
+    in[4 * MACHINE_VIDEO_ROW_BYTES + 0] = 0x01; /* x = 7 */
     memset(out, 0, sizeof out);
-    scale_picture(in, out, false, false);
+    scale_all(false, false);
     CHECK_EQ(get_out(10, 5), 1);
     CHECK_EQ(get_out(10, 6), 1);
     CHECK_EQ(get_out(11, 6), 1);
@@ -85,33 +91,33 @@ static void test_single_dot_becomes_its_block(void)
     CHECK_EQ(get_out(10, 7), 0);
 }
 
-static void test_reports_whether_output_changed(void)
+static void test_last_column_reads_inside_the_row(void)
 {
-    fill_random(7u);
+    /* The last 7-dot group of a row starts in its last byte; the dot after
+       it must not come from the next row. Only row 1's first dot is lit. */
+    memset(in, 0, sizeof in);
+    in[1 * MACHINE_VIDEO_ROW_BYTES] = 0x80;
     memset(out, 0, sizeof out);
-    CHECK(scale_picture(in, out, false, false));
-    CHECK(!scale_picture(in, out, false, false));
-
-    in[100] ^= 0x10;
-    CHECK(scale_picture(in, out, false, false));
-    CHECK_EQ(count_mismatches(false, false), 0);
+    scale_row(in, 0, false, false, out);
+    CHECK_EQ(out[SCALE_ROW_BYTES - 1], 0);
 }
 
-static void test_blank_into_blank_is_no_change(void)
+static void test_source_row(void)
 {
-    memset(in, 0, sizeof in);
-    memset(out, 0, sizeof out);
-    CHECK(!scale_picture(in, out, false, false));
-    memset(out, 0xFF, sizeof out);
-    CHECK(!scale_picture(in, out, false, true));
+    CHECK_EQ(scale_source_row(0, false), 0);
+    CHECK_EQ(scale_source_row(4, false), 3);
+    CHECK_EQ(scale_source_row(5, false), 4);
+    CHECK_EQ(scale_source_row(479, false), 383);
+    CHECK_EQ(scale_source_row(0, true), 383);
+    CHECK_EQ(scale_source_row(479, true), 0);
 }
 
 int main(void)
 {
+    test_source_row();
     test_sizes();
     test_matches_reference_in_every_orientation();
     test_single_dot_becomes_its_block();
-    test_reports_whether_output_changed();
-    test_blank_into_blank_is_no_change();
+    test_last_column_reads_inside_the_row();
     return TEST_RESULT();
 }

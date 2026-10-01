@@ -37,29 +37,43 @@ static const uint8_t fast_lut[110] = {
     0x17, 0x41, 0xA8, 0x32, 0x30,
 };
 
+/* The controller's two picture RAMs. A partial update drives each dot
+   from its value in RAM_PREVIOUS to its value in RAM_NEW. */
+enum epd_ram : uint8_t {
+    RAM_NEW = 0x24,
+    RAM_PREVIOUS = 0x26,
+};
+
 /* GxEPD2's driver sends pictures one SPI call per byte. This subclass adds
-   a bulk write of a whole window, and a partial update that can use the
-   fast waveform above. */
+   bulk writes of whole rows and a partial update that can use the fast
+   waveform above. */
 class FastEpd : public GxEPD2_426_GDEQ0426T82 {
 public:
     using GxEPD2_426_GDEQ0426T82::GxEPD2_426_GDEQ0426T82;
 
-    /* Write a w x h picture (w a multiple of 8) at (x, y) into controller
-       RAM: 0x24 = the new picture, 0x26 = the one already on the panel. */
-    void write_window(uint8_t ram, const uint8_t *picture, uint16_t x, uint16_t y, uint16_t w,
-                      uint16_t h)
+    /* Start writing the whole panel into one RAM, top row first; send each
+       row of SCALE_ROW_BYTES with write_row. */
+    void begin_ram(epd_ram ram)
     {
-        set_area(x, y, w, h);
+        set_full_area();
         _writeCommand(ram);
         _startTransfer();
-        _pSPIx->writeBytes(picture, (uint32_t)w / 8 * h);
+    }
+
+    void write_row(const uint8_t *row)
+    {
+        _pSPIx->writeBytes(row, SCALE_ROW_BYTES);
+    }
+
+    void end_ram()
+    {
         _endTransfer();
     }
 
-    /* Partial (differential) update of the window at (x, y). */
-    void update_window(uint16_t x, uint16_t y, uint16_t w, uint16_t h)
+    /* Partial (differential) update of the whole panel. */
+    void update_partial()
     {
-        set_area(x, y, w, h);
+        set_full_area();
         _writeCommand(0x21); /* display update control: RED normal */
         _writeData(0x00);
         _writeData(0x00);
@@ -68,12 +82,12 @@ public:
            the controller. 0xFC also loads the panel's own LUT from OTP. */
         _writeData(FAST_LUT ? 0xCC : 0xFC);
         _writeCommand(0x20);
-        _waitWhileBusy("update_window", partial_refresh_time);
+        _waitWhileBusy("update_partial", partial_refresh_time);
         _power_is_on = true;
     }
 
-    /* Load the fast waveform. Any update that loads the OTP LUT (a full
-       refresh) replaces it, so call this again after one. */
+    /* Load the fast waveform and its voltages. A full refresh replaces the
+       waveform with the panel's own, so call this again after one. */
     void load_fast_lut()
     {
         _writeCommand(0x32);
@@ -91,29 +105,28 @@ public:
     }
 
 private:
-    /* Same RAM window setup as the driver: the gates are reversed on this
-       panel, so y counts down. */
-    void set_area(uint16_t x, uint16_t y, uint16_t w, uint16_t h)
+    /* Same RAM window setup as the driver, for the whole panel: the gates
+       are reversed on this panel, so y counts down. */
+    void set_full_area()
     {
-        y = HEIGHT - y - h;
         _writeCommand(0x11);
         _writeData(0x01);
         _writeCommand(0x44);
-        _writeData(x % 256);
-        _writeData(x / 256);
-        _writeData((x + w - 1) % 256);
-        _writeData((x + w - 1) / 256);
+        _writeData(0);
+        _writeData(0);
+        _writeData((WIDTH - 1) % 256);
+        _writeData((WIDTH - 1) / 256);
         _writeCommand(0x45);
-        _writeData((y + h - 1) % 256);
-        _writeData((y + h - 1) / 256);
-        _writeData(y % 256);
-        _writeData(y / 256);
+        _writeData((HEIGHT - 1) % 256);
+        _writeData((HEIGHT - 1) / 256);
+        _writeData(0);
+        _writeData(0);
         _writeCommand(0x4e);
-        _writeData(x % 256);
-        _writeData(x / 256);
+        _writeData(0);
+        _writeData(0);
         _writeCommand(0x4f);
-        _writeData((y + h - 1) % 256);
-        _writeData((y + h - 1) / 256);
+        _writeData((HEIGHT - 1) % 256);
+        _writeData((HEIGHT - 1) / 256);
     }
 };
 
@@ -122,8 +135,36 @@ static uint32_t partial_count;
 
 static const uint8_t background = INVERT_VIDEO ? 0xFF : 0x00;
 
-/* What is on the panel: the game picture stretched to all 800x480. */
-static uint8_t panel[SCALE_BUFFER_SIZE];
+/* Stretch the picture to the whole panel and write it into one RAM. */
+static void send_picture(epd_ram ram, const uint8_t *picture)
+{
+    uint8_t row[SCALE_ROW_BYTES];
+
+    epd.begin_ram(ram);
+    for (int y = 0; y < SCALE_HEIGHT; y++) {
+        /* Every fifth panel row repeats the game row above it. */
+        if (y == 0 || scale_source_row(y, ROTATE_180) != scale_source_row(y - 1, ROTATE_180)) {
+            scale_row(picture, y, ROTATE_180, INVERT_VIDEO, row);
+        }
+        epd.write_row(row);
+    }
+    epd.end_ram();
+}
+
+/* Show a picture with one full (flashing) refresh, which clears ghosting.
+   With FAST_LUT the refresh loads the panel's own waveform but keeps the
+   fast waveform's voltages. Resetting the controller to its own voltages
+   first was tried: the full refresh then cleared ghosting visibly worse, and
+   the partial updates run at these voltages anyway. */
+static void show_full(const uint8_t *picture)
+{
+    send_picture(RAM_NEW, picture);
+    epd.refresh(false);
+    send_picture(RAM_PREVIOUS, picture);
+    if (FAST_LUT) {
+        epd.load_fast_lut();
+    }
+}
 
 void display_begin(void)
 {
@@ -133,35 +174,23 @@ void display_begin(void)
     epd.selectSPI(SPI, SPISettings(EPD_SPI_HZ, MSBFIRST, SPI_MODE0));
     epd.init(0, true, 10, false);
     epd.clearScreen(background);
-    memset(panel, background, sizeof panel);
     if (FAST_LUT) {
         epd.load_fast_lut();
     }
     partial_count = 0;
 }
 
-bool display_show(const uint8_t *picture)
+void display_show(const uint8_t *picture)
 {
-    if (!scale_picture(picture, panel, ROTATE_180, INVERT_VIDEO)) {
-        return false;
-    }
-
-    epd.write_window(0x24, panel, 0, 0, SCALE_WIDTH, SCALE_HEIGHT);
-
     if (FULL_REFRESH_EVERY > 0 && ++partial_count >= FULL_REFRESH_EVERY) {
         partial_count = 0;
-        epd.refresh(false);
-        if (FAST_LUT) {
-            epd.load_fast_lut();
-        }
-    } else {
-        epd.update_window(0, 0, SCALE_WIDTH, SCALE_HEIGHT);
+        show_full(picture);
+        return;
     }
-
-    /* Differential refresh compares against the "previous" RAM, so make it
-       match what is now on the panel. */
-    epd.write_window(0x26, panel, 0, 0, SCALE_WIDTH, SCALE_HEIGHT);
-    return true;
+    send_picture(RAM_NEW, picture);
+    epd.update_partial();
+    /* The next partial update starts from what is now on the panel. */
+    send_picture(RAM_PREVIOUS, picture);
 }
 
 static void set_dot(uint8_t *picture, int x, int y)
@@ -204,8 +233,5 @@ void display_show_halt(uint8_t *picture, const char *reason)
     line[sizeof line - 1] = '\0';
     draw_text(picture, 8, 200, line, 2);
 
-    scale_picture(picture, panel, ROTATE_180, INVERT_VIDEO);
-    epd.write_window(0x24, panel, 0, 0, SCALE_WIDTH, SCALE_HEIGHT);
-    epd.write_window(0x26, panel, 0, 0, SCALE_WIDTH, SCALE_HEIGHT);
-    epd.refresh(false);
+    show_full(picture);
 }

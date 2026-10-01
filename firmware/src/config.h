@@ -23,7 +23,7 @@
 
 /* Force a full (flashing) refresh after this many partial refreshes to clear
    ghosting. 0 = never. */
-#define FULL_REFRESH_EVERY 300
+#define FULL_REFRESH_EVERY 150
 
 /* 1 = black dots on white instead of white dots on black. */
 #define INVERT_VIDEO 0

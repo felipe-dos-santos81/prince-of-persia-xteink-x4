@@ -26,10 +26,25 @@ static uint32_t next_frame_us;
 static uint32_t late_frames;
 static uint32_t frames_since_yield;
 
+/* FNV-1a, 32-bit: cheap on this CPU and enough to spot a changed picture. */
+static uint32_t picture_hash(const uint8_t *data, size_t len)
+{
+    uint32_t hash = 2166136261u;
+
+    for (size_t i = 0; i < len; i++) {
+        hash ^= data[i];
+        hash *= 16777619u;
+    }
+    return hash;
+}
+
 /* Owns the panel. Asks the emulator for a picture, shows it if it changed,
    and repeats. The emulator keeps running while the panel refreshes. */
 static void display_task(void *)
 {
+    uint32_t shown = 0;
+    bool first = true;
+
     display_begin();
     for (;;) {
         xSemaphoreGive(frame_request);
@@ -40,7 +55,11 @@ static void display_task(void *)
             vTaskDelete(NULL);
         }
 
-        if (display_show(picture)) {
+        uint32_t hash = picture_hash(picture, sizeof picture);
+        if (first || hash != shown) {
+            display_show(picture);
+            shown = hash;
+            first = false;
             panel_refreshes = panel_refreshes + 1;
         } else {
             vTaskDelay(pdMS_TO_TICKS(20));
@@ -65,6 +84,7 @@ static void boot_benchmark(void)
     uint32_t start = micros();
     for (int i = 0; i < BOOT_BENCHMARK_FRAMES; i++) {
         if (machine_run_frame() == MACHINE_HALTED) {
+            Serial.printf("benchmark: machine halted after %d frames\n", i + 1);
             return;
         }
     }
