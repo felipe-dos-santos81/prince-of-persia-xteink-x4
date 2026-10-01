@@ -10,16 +10,25 @@
 #include "softswitch.h"
 #include "video.h"
 
-static machine_status_t status;
+/* machine.h restates the picture size for the shells; keep it in step with
+   the renderer (a negative array size fails the build). */
+typedef char machine_video_size_matches[(MACHINE_VIDEO_WIDTH == VIDEO_WIDTH &&
+                                         MACHINE_VIDEO_HEIGHT == VIDEO_HEIGHT &&
+                                         MACHINE_VIDEO_ROW_BYTES == VIDEO_ROW_BYTES &&
+                                         MACHINE_VIDEO_BUFFER_SIZE == VIDEO_BUFFER_SIZE)
+                                            ? 1
+                                            : -1];
+
+static machine_status_t run_status;
 static char halt_reason[160];
 static uint32_t frame_cycle;
 static uint64_t total_cycles;
 
-static void halt(const char *what, uint16_t pc, uint8_t opcode)
+static void halt_on_opcode(const char *what, uint16_t pc, uint8_t opcode)
 {
     const softswitch_state_t *s = softswitch_state();
 
-    status = MACHINE_HALTED;
+    run_status = MACHINE_HALTED;
     snprintf(halt_reason, sizeof halt_reason,
              "%s: pc=$%04X opcode=$%02X ramrd=%d ramwrt=%d altzp=%d store80=%d "
              "lcram=%d lcwrite=%d lcbank2=%d",
@@ -31,7 +40,7 @@ void machine_init(const uint8_t *image, size_t image_len)
 {
     const char *error;
 
-    status = MACHINE_RUNNING;
+    run_status = MACHINE_RUNNING;
     halt_reason[0] = '\0';
     frame_cycle = 0;
     total_cycles = 0;
@@ -42,15 +51,15 @@ void machine_init(const uint8_t *image, size_t image_len)
 
     error = boot_load(image, image_len);
     if (error != NULL) {
-        status = MACHINE_HALTED;
+        run_status = MACHINE_HALTED;
         snprintf(halt_reason, sizeof halt_reason, "bad image: %s", error);
     }
 }
 
 machine_status_t machine_run_frame(void)
 {
-    if (status == MACHINE_HALTED) {
-        return status;
+    if (run_status == MACHINE_HALTED) {
+        return run_status;
     }
 
     while (frame_cycle < MACHINE_CYCLES_PER_FRAME) {
@@ -66,12 +75,12 @@ machine_status_t machine_run_frame(void)
             uint8_t opcode = bus_read(pc);
 
             if (opcode == 0x00) {
-                halt("BRK", pc, opcode);
-                return status;
+                halt_on_opcode("BRK", pc, opcode);
+                return run_status;
             }
             if (!cpu_opcode_is_documented(opcode)) {
-                halt("illegal opcode", pc, opcode);
-                return status;
+                halt_on_opcode("illegal opcode", pc, opcode);
+                return run_status;
             }
             used = cpu_step();
         }
@@ -81,7 +90,7 @@ machine_status_t machine_run_frame(void)
 
     /* Carry the overshoot into the next frame. */
     frame_cycle -= MACHINE_CYCLES_PER_FRAME;
-    return status;
+    return run_status;
 }
 
 void machine_render(uint8_t *out)

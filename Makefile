@@ -45,13 +45,13 @@ test: $(addprefix $(BUILD)/,$(TESTS)) $(KLAUS)
 
 host: $(BUILD)/pop-headless $(BUILD)/pop-sdl
 
-$(BUILD)/pop-headless: host/headless.c $(CORE) $(CORE_DEPS)
+$(BUILD)/pop-headless: host/headless.c host/read_file.c host/read_file.h $(CORE) $(CORE_DEPS)
 	@mkdir -p $(BUILD)
-	$(CC) $(CPPFLAGS) $(CFLAGS) -o $@ host/headless.c $(CORE)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -o $@ host/headless.c host/read_file.c $(CORE)
 
-$(BUILD)/pop-sdl: host/sdl_main.c $(CORE) $(CORE_DEPS)
+$(BUILD)/pop-sdl: host/sdl_main.c host/read_file.c host/read_file.h $(CORE) $(CORE_DEPS)
 	@mkdir -p $(BUILD)
-	$(CC) $(CPPFLAGS) $(CFLAGS) $(shell sdl2-config --cflags) -o $@ host/sdl_main.c $(CORE) $(shell sdl2-config --libs)
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(shell sdl2-config --cflags) -o $@ host/sdl_main.c host/read_file.c $(CORE) $(shell sdl2-config --libs)
 
 # 260,000 frames is 4.4 billion CPU cycles: past the point where the CPU
 # core's 32-bit cycle counter wraps (about 70 minutes of emulated time).
