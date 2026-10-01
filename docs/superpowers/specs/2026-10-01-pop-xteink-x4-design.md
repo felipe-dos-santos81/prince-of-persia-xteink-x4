@@ -145,6 +145,7 @@ machine_status_t machine_run_frame(void);       /* 17,030 CPU cycles */
 void machine_render(uint8_t *out);              /* 560x384, 1 bpp, 26,880 bytes */
 const char *machine_halt_reason(void);          /* valid when halted */
 uint64_t machine_cycles(void);
+const char *machine_video_mode_name(void);      /* "blank", "hires", "dhires" */
 ```
 
 `machine_render` output: 384 rows of 70 bytes, most significant bit is the
@@ -303,16 +304,19 @@ compiler:
   size overridden to 16 MB.
 - Build flags enable USB CDC serial at boot.
 - `core/` is compiled into the firmware as a library; no copy of the sources.
-- The disk image is embedded with `board_build.embed_files`, pointing at
-  `game/out/PrinceOfPersia_3.5.hdv`. It stays in flash and is read in place.
+- The disk image is embedded by an assembly file (`disk_image.S`) that uses
+  `.incbin` on `game/out/PrinceOfPersia_3.5.hdv`, placed in read-only data.
+  It stays in flash and is read in place. (`board_build.embed_files` was
+  tried during planning and rejected: for a file outside the project
+  directory it derives the symbol name from the absolute path.)
 - A custom partition table gives the application 3 MB.
 - Wi-Fi and Bluetooth are never initialised.
 
 ### 7.2 Display
 
 - Driver: GxEPD2's `GxEPD2_426_GDEQ0426T82` class used directly through
-  `writeImage`, `refresh(x, y, w, h)` and `writeImageAgain`. GxEPD2's paged
-  drawing layer is not used.
+  `writeImage`, `refresh(x, y, w, h)` and `writeImageToPrevious`. GxEPD2's
+  paged drawing layer is not used.
 - The 560×384 picture is placed at panel position (120, 48), landscape.
 - At boot: clear the whole panel with one full refresh.
 - After that: partial refresh of the game window only.
@@ -321,12 +325,14 @@ compiler:
   device.
 - A compile-time flag `INVERT_VIDEO` swaps black and white. Default off (lit
   dots are white on black).
+- A compile-time flag `ROTATE_180` turns the picture upside down, in case
+  the panel is mounted that way. Default off.
 
 ### 7.3 Tasks and pacing
 
 Two FreeRTOS tasks:
 
-- **Emulator task.** Loop: `machine_run_frame()`; if the display task has
+- **Emulator task** (the Arduino loop task). Loop: `machine_run_frame()`; if the display task has
   requested a picture, call `machine_render` into the shared buffer and
   signal it; then sleep until the next 16.69 ms tick. If the tick has already
   passed, do not sleep, and count the frame as late. Regardless of lateness,
@@ -344,18 +350,25 @@ so no lock is needed beyond the request/signal pair.
 ### 7.4 Logging
 
 Over USB serial, once per second: emulated cycles per second, late-frame
-count, panel refreshes per second, free heap. At boot: image size and the
-first 16 bytes of block 8.
+count, panel refreshes per second, free heap. At boot: image size, the first
+16 bytes of block 8, and a benchmark that runs 300 frames unpaced and reports
+the speed as a percentage of real time (the machine is then re-initialised).
 
 ### 7.5 Memory budget
+
+Measured from a firmware link during planning (321,296 bytes of data RAM on
+this chip configuration):
 
 | Item | RAM |
 |---|---|
 | Emulated main and aux memory | 128 KB |
+| Stub ROM | 16 KB |
 | Picture buffer (560×384) | 27 KB |
-| Task stacks, driver state, logging | about 20 KB |
+| Other static data (Arduino core, drivers) | about 21 KB |
+| Code placed in RAM by the framework | about 58 KB |
 | Disk image | 0 (read from flash) |
-| Total | about 175 KB of about 380 KB |
+| Total static | about 250 KB |
+| Left for heap and task stacks | about 72 KB |
 
 ## 8. Game build
 
@@ -385,9 +398,10 @@ committed to this repository.
   `machine_run_frame` does nothing further once halted.
 - **Host:** `pop-headless` prints the reason and exits non-zero. `pop-sdl`
   prints the reason and keeps the last picture on screen.
-- **Device:** the reason goes to serial every second, and the panel shows a
-  one-line "HALTED" message with the program counter, drawn with a small
-  built-in bitmap font, via one full refresh.
+- **Device:** the reason goes to serial every second, and the panel shows
+  "HALTED" and, below it, the first 46 characters of the reason (which include
+  the program counter), drawn with the Adafruit GFX classic 5×7 font, via one
+  full refresh.
 - **Disk errors** are returned to the game as SmartPort error codes (5.4); the
   game shows its own "insert disk" behaviour.
 - **Running slow** is logged (late-frame count), never hidden.
@@ -412,8 +426,10 @@ Tests that need the disk image are skipped with a clear message if
 The Klaus Dormann test binary is fetched by a script into a gitignored
 directory, not committed.
 
-Golden hashes are recorded once in milestone 4, after the pictures have been
-checked by eye in the SDL window, and stored in `tests/golden.txt`.
+Golden hashes are stored in `tests/golden.txt`. The values for frame 1200
+(title screen) and frame 9000 (demo level) were recorded during planning from
+a prototype of this design, after the dumped pictures were checked by eye.
+In milestone 4 they are confirmed again by eye in the SDL window.
 
 On the device, verification is by eye plus the serial counters in 7.4.
 
@@ -439,7 +455,6 @@ Milestones 1–4 need no hardware.
 | The game depends on a soft switch or ROM behaviour not listed here | Medium | The halt reason and a host-side trace option locate it; add the behaviour to `softswitch` or `rom` |
 | Emulated speed on the ESP32-C3 is below real time | Low | Measured in milestone 5 before display work; optimise the bus fast path or change CPU core |
 | Partial refresh is slower or ghosts more than documented | Medium | Tune `FULL_REFRESH_EVERY` and `INVERT_VIDEO`; accept a lower frame rate |
-| `embed_files` does not work with the Arduino framework build | Low | Embed the image with an assembly file using `.incbin` |
 | GxEPD2's driver for this panel does not suit the X4's wiring or timing | Low | Fall back to a small direct SSD1677 driver using the command sequences documented by the Papyrix and CrossPoint projects |
 
 ## 13. Legal note
