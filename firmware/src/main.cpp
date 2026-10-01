@@ -145,8 +145,11 @@ static void pace(void)
 void setup()
 {
     Serial.begin(115200);
-    /* Never block on logging: on battery there is no USB host to read it. */
-    Serial.setTxTimeoutMs(0);
+    /* Never block on logging for long: on battery, or with a USB host that
+       is not reading, nobody drains it. Not 0: Arduino core 3.3.7's HWCDC
+       counts a 0 ms timeout down past zero and then waits forever for a host
+       that is connected but not reading. */
+    Serial.setTxTimeoutMs(1);
     delay(1500); /* let USB serial enumerate so the boot log is visible */
 
     size_t image_len = (size_t)(disk_image_end - disk_image_start);

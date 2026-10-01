@@ -502,3 +502,4 @@ noted; sections 7.1–7.5 describe the result.
 | `FAST_LUT` custom waveform | User asked for more pictures per second and accepted the risk of panel damage |
 | Picture stretched to 800×480 | User asked for fullscreen and chose stretching over keeping proportions |
 | `FULL_REFRESH_EVERY` = 150 | User judged the ghosting with the fast waveform |
+| Serial transmit timeout 1 ms instead of 0 | With 0, Arduino core 3.3.7 blocks logging forever while a USB host is connected but not reading, which froze the emulator |
