@@ -15,7 +15,7 @@ the beginning.
 |---|---|
 | Sleep | ESP32-C3 deep sleep; the e-ink panel keeps the sleep screen with no power |
 | Wake | Power button only (the only button wired to a digital pin) |
-| Activity | Any of the seven buttons resets the 30 s timer; boot and wake count as activity |
+| Activity | Any of the seven buttons resets the 30 s timer; boot, wake and unplugging USB count as activity |
 | Sleep screen | The game's title screen (emulated frame 1200), stretched to the panel, with "Press power to wake" in a small black box |
 | USB | While a USB host is connected the device stays awake, so it can be flashed and monitored; `SLEEP_ON_USB` = 1 sleeps anyway |
 

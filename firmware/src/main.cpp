@@ -64,15 +64,20 @@ static void enter_deep_sleep(void)
 
 /* Once IDLE_SLEEP_MS passes with no button pressed, hand over to the display
    task to sleep. While a USB host is connected, stay awake unless
-   SLEEP_ON_USB is set, so the device can still be flashed and monitored. */
+   SLEEP_ON_USB is set, so the device can still be flashed and monitored.
+   Unplugging counts as activity, so it does not fall asleep the moment the
+   cable comes out. */
 static void check_idle(void)
 {
     static bool postponed_logged;
+    static bool was_plugged;
+    bool plugged = HWCDC::isPlugged();
+    bool active = input_any_pressed() || idle_usb_unplugged(&was_plugged, plugged);
 
-    if (!idle_update(&idle, millis(), input_any_pressed())) {
+    if (!idle_update(&idle, millis(), active)) {
         return;
     }
-    if (!SLEEP_ON_USB && HWCDC::isPlugged()) {
+    if (!SLEEP_ON_USB && plugged) {
         if (!postponed_logged) {
             Serial.println("sleep: postponed while USB is connected");
             postponed_logged = true;

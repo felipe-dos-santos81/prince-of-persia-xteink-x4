@@ -50,6 +50,17 @@ static void test_survives_millis_wrap(void)
     CHECK(idle_update(&t, start + TIMEOUT, false));
 }
 
+static void test_usb_unplug_is_seen_once(void)
+{
+    bool was_plugged = false;
+
+    CHECK(!idle_usb_unplugged(&was_plugged, true));
+    CHECK(!idle_usb_unplugged(&was_plugged, true));
+    CHECK(idle_usb_unplugged(&was_plugged, false));
+    CHECK(!idle_usb_unplugged(&was_plugged, false));
+    CHECK(!idle_usb_unplugged(&was_plugged, true));
+}
+
 int main(void)
 {
     test_not_expired_before_timeout();
@@ -57,5 +68,6 @@ int main(void)
     test_activity_restarts_the_count();
     test_activity_after_expiry_restarts_the_count();
     test_survives_millis_wrap();
+    test_usb_unplug_is_seen_once();
     return TEST_RESULT();
 }
